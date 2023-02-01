@@ -59,12 +59,17 @@
 
 - (CGRect)contentFrame {
     CGRect bubbleFrame = [self bubbleFrame];
-    
-    CGRect contentFrame = CGRectMake(bubbleFrame.origin.x + _cornerRadius + _bubblePaddingX,
-                                     bubbleFrame.origin.y + _cornerRadius + _bubblePaddingY,
-                                     bubbleFrame.size.width - (_bubblePaddingX*2) - (_cornerRadius*2),
-                                     bubbleFrame.size.height - (_bubblePaddingY*2) - (_cornerRadius*2));
-    return contentFrame;
+
+    if (self.shouldEnforceCustomViewPadding) {
+				CGRect contentFrame = CGRectMake(bubbleFrame.origin.x + _cornerRadius + _bubblePaddingX,
+												 bubbleFrame.origin.y + _cornerRadius + _bubblePaddingY,
+												 bubbleFrame.size.width - (_bubblePaddingX*2) - (_cornerRadius*2),
+												 bubbleFrame.size.height - (_bubblePaddingY*2) - (_cornerRadius*2));
+        return contentFrame;
+    }
+    else {
+        return bubbleFrame;
+    }
 }
 
 - (void)layoutSubviews {
@@ -365,7 +370,7 @@
 
     // If we want to dismiss the bubble when the user taps anywhere, we need to insert
     // an invisible button over the background.
-    if ( self.dismissTapAnywhere && !self.dismissTarget ) {
+    if ( self.dismissTapAnywhere ) {
         self.dismissTarget = [UIButton buttonWithType:UIButtonTypeCustom];
         [self.dismissTarget addTarget:self action:@selector(dismissTapAnywhereFired:) forControlEvents:UIControlEventTouchUpInside];
         [self.dismissTarget setTitle:@"" forState:UIControlStateNormal];
@@ -378,7 +383,7 @@
 	// Size of rounded rect
 	CGFloat rectWidth;
 
-    if (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad) {
+    if (UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad) {
         // iPad
         if (self.maxWidth) {
             if (self.maxWidth < containerView.frame.size.width) {
@@ -475,7 +480,12 @@
         textSize.height += titleSize.height;
     }
 
-	_bubbleSize = CGSizeMake(textSize.width + (_bubblePaddingX*2) + (_cornerRadius*2), textSize.height + (_bubblePaddingY*2) + (_cornerRadius*2));
+    if (self.shouldEnforceCustomViewPadding) {
+				_bubbleSize = CGSizeMake(textSize.width + (_bubblePaddingX*2) + (_cornerRadius*2), textSize.height + (_bubblePaddingY*2) + (_cornerRadius*2));
+    }
+    else {
+        _bubbleSize = CGSizeMake(textSize.width, textSize.height);
+    }
 
 	UIView *superview = containerView.superview;
 	if ([superview isKindOfClass:[UIWindow class]])
@@ -497,8 +507,7 @@
     }
     else {
         _pointDirection = _preferredPointDirection;
-        CGPoint showPoint = self.showFromCenter ? CGPointMake(targetView.bounds.size.width/2, targetView.bounds.size.height/2) : CGPointMake(0.0, 0.0);
-        CGPoint targetOriginInContainer = [targetView convertPoint:showPoint toView:containerView];
+        CGPoint targetOriginInContainer = [targetView convertPoint:CGPointMake(0.0, 0.0) toView:containerView];
         CGFloat sizeBelow = containerView.bounds.size.height - targetOriginInContainer.y;
         if (_pointDirection == PointDirectionAny) {
             if (sizeBelow > targetOriginInContainer.y) {
@@ -605,18 +614,26 @@
 }
 
 - (void)presentPointingAtBarButtonItem:(UIBarButtonItem *)barButtonItem animated:(BOOL)animated {
-    UIView *targetView = (UIView *)[barButtonItem performSelector:@selector(view)];
-    UIView *containerView = targetView.window;
-
-    if (nil == containerView) {
-        NSLog(@"Cannot determine container view from UIBarButtonItem: %@", barButtonItem);
-        self.targetObject = nil;
-        return;
+	UIView *targetView = (UIView *)[barButtonItem performSelector:@selector(view)];
+    // Try to find the superview of the UINavigationBar. Limit the number of tries to 8.
+    UIView *containerView = targetView.superview;
+    for(NSInteger i = 0; i < 8; ++i) {
+        if([containerView isKindOfClass:[UINavigationBar class]]) {
+            containerView = containerView.superview;
+            break;
+        }
+        containerView = containerView.superview;
     }
 
-    self.targetObject = barButtonItem;
+	if (nil == containerView) {
+		NSLog(@"Cannot determine container view from UIBarButtonItem: %@", barButtonItem);
+		self.targetObject = nil;
+		return;
+	}
 
-    [self presentPointingAtView:targetView inView:containerView animated:animated];
+	self.targetObject = barButtonItem;
+
+	[self presentPointingAtView:targetView inView:containerView animated:animated];
 }
 
 - (void)finaliseDismiss {
@@ -636,6 +653,7 @@
 - (void)dismissAnimationDidStop:(__unused NSString *)animationID finished:(__unused NSNumber *)finished context:(__unused void *)context
 {
 	[self finaliseDismiss];
+    [self notifyDelegatePopTipViewWasDismissedByUser];
 }
 
 - (void)dismissAnimated:(BOOL)animated {
@@ -820,6 +838,7 @@
 
 	if ((self = [self initWithFrame:frame])) {
 		self.customView = aView;
+        self.shouldEnforceCustomViewPadding = YES;
         self.shouldMaskCustomView = YES;
         [self addSubview:self.customView];
 	}
